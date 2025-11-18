@@ -1,0 +1,3 @@
+export const DB_TOKENS = {
+  PRISMA_CLIENT: "PRISMA_CLIENT",
+};

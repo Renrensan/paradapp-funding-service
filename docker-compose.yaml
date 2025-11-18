@@ -1,0 +1,14 @@
+services:
+  postgresdb:
+    container_name: creaty_pgdb
+    image: postgres:latest
+    env_file:
+      - .env
+    restart: on-failure
+    environment:
+      - POSTGRES_USER=${DB_USER}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_DB=${DB_NAME}
+      - DATABASE_HOST=${DB_HOST}
+    ports:
+      - "5433:5432"

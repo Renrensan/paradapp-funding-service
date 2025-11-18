@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<coverage generated="1763394057619" clover="3.2.0">
+  <project timestamp="1763394057619" name="All files">
+    <metrics statements="91" coveredstatements="67" conditionals="31" coveredconditionals="12" methods="12" coveredmethods="11" elements="134" coveredelements="90" complexity="0" loc="91" ncloc="91" packages="3" files="7" classes="7"/>
+    <package name="core.response">
+      <metrics statements="4" coveredstatements="4" conditionals="0" coveredconditionals="0" methods="1" coveredmethods="1"/>
+      <file name="httpresponse.ts" path="/home/renrensan/project/paradapp/paradapp-funding-service/src/core/response/httpresponse.ts">
+        <metrics statements="4" coveredstatements="4" conditionals="0" coveredconditionals="0" methods="1" coveredmethods="1"/>
+        <line num="1" count="1" type="stmt"/>
+        <line num="6" count="2" type="stmt"/>
+        <line num="7" count="2" type="stmt"/>
+        <line num="8" count="2" type="stmt"/>
+      </file>
+    </package>
+    <package name="modules.indodax">
+      <metrics statements="38" coveredstatements="21" conditionals="3" coveredconditionals="0" methods="4" coveredmethods="3"/>
+      <file name="indodax.module.ts" path="/home/renrensan/project/paradapp/paradapp-funding-service/src/modules/indodax/indodax.module.ts">
+        <metrics statements="7" coveredstatements="7" conditionals="0" coveredconditionals="0" methods="1" coveredmethods="1"/>
+        <line num="1" count="1" type="stmt"/>
+        <line num="2" count="1" type="stmt"/>
+        <line num="3" count="1" type="stmt"/>
+        <line num="5" count="1" type="stmt"/>
+        <line num="7" count="1" type="stmt"/>
+        <line num="8" count="1" type="stmt"/>
+        <line num="11" count="1" type="stmt"/>
+      </file>
+      <file name="indodax.service.ts" path="/home/renrensan/project/paradapp/paradapp-funding-service/src/modules/indodax/indodax.service.ts">
+        <metrics statements="30" coveredstatements="13" conditionals="3" coveredconditionals="0" methods="3" coveredmethods="2"/>
+        <line num="1" count="1" type="stmt"/>
+        <line num="2" count="1" type="stmt"/>
+        <line num="3" count="1" type="stmt"/>
+        <line num="4" count="1" type="stmt"/>
+        <line num="5" count="1" type="stmt"/>
+        <line num="9" count="1" type="stmt"/>
+        <line num="10" count="1" type="stmt"/>
+        <line num="13" count="1" type="stmt"/>
+        <line num="14" count="1" type="stmt"/>
+        <line num="18" count="1" type="stmt"/>
+        <line num="19" count="1" type="stmt"/>
+        <line num="20" count="1" type="stmt"/>
+        <line num="21" count="1" type="stmt"/>
+        <line num="23" count="0" type="stmt"/>
+        <line num="28" count="0" type="stmt"/>
+        <line num="29" count="0" type="stmt"/>
+        <line num="30" count="0" type="stmt"/>
+        <line num="32" count="0" type="stmt"/>
+        <line num="33" count="0" type="stmt"/>
+        <line num="34" count="0" type="stmt"/>
+        <line num="35" count="0" type="stmt"/>
+        <line num="38" count="0" type="stmt"/>
+        <line num="40" count="0" type="stmt"/>
+        <line num="44" count="0" type="stmt"/>
+        <line num="45" count="0" type="stmt"/>
+        <line num="57" count="0" type="stmt"/>
+        <line num="59" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="60" count="0" type="stmt"/>
+        <line num="63" count="0" type="stmt"/>
+        <line num="65" count="0" type="stmt"/>
+      </file>
+      <file name="tokens.ts" path="/home/renrensan/project/paradapp/paradapp-funding-service/src/modules/indodax/tokens.ts">
+        <metrics statements="1" coveredstatements="1" conditionals="0" coveredconditionals="0" methods="0" coveredmethods="0"/>
+        <line num="1" count="1" type="stmt"/>
+      </file>
+    </package>
+    <package name="modules.xendit">
+      <metrics statements="49" coveredstatements="42" conditionals="28" coveredconditionals="12" methods="7" coveredmethods="7"/>
+      <file name="tokens.ts" path="/home/renrensan/project/paradapp/paradapp-funding-service/src/modules/xendit/tokens.ts">
+        <metrics statements="1" coveredstatements="1" conditionals="0" coveredconditionals="0" methods="0" coveredmethods="0"/>
+        <line num="1" count="1" type="stmt"/>
+      </file>
+      <file name="xendit.module.ts" path="/home/renrensan/project/paradapp/paradapp-funding-service/src/modules/xendit/xendit.module.ts">
+        <metrics statements="13" coveredstatements="13" conditionals="4" coveredconditionals="2" methods="1" coveredmethods="1"/>
+        <line num="1" count="1" type="stmt"/>
+        <line num="2" count="1" type="stmt"/>
+        <line num="3" count="1" type="stmt"/>
+        <line num="4" count="1" type="stmt"/>
+        <line num="6" count="1" type="stmt"/>
+        <line num="9" count="1" type="stmt"/>
+        <line num="10" count="1" type="cond" truecount="1" falsecount="1"/>
+        <line num="11" count="1" type="cond" truecount="1" falsecount="1"/>
+        <line num="13" count="1" type="stmt"/>
+        <line num="14" count="1" type="stmt"/>
+        <line num="15" count="1" type="stmt"/>
+        <line num="16" count="1" type="stmt"/>
+        <line num="17" count="1" type="stmt"/>
+      </file>
+      <file name="xendit.service.ts" path="/home/renrensan/project/paradapp/paradapp-funding-service/src/modules/xendit/xendit.service.ts">
+        <metrics statements="35" coveredstatements="28" conditionals="24" coveredconditionals="10" methods="6" coveredmethods="6"/>
+        <line num="1" count="1" type="stmt"/>
+        <line num="3" count="1" type="stmt"/>
+        <line num="4" count="1" type="stmt"/>
+        <line num="9" count="1" type="stmt"/>
+        <line num="11" count="1" type="stmt"/>
+        <line num="12" count="1" type="stmt"/>
+        <line num="13" count="1" type="stmt"/>
+        <line num="17" count="1" type="cond" truecount="1" falsecount="1"/>
+        <line num="19" count="1" type="stmt"/>
+        <line num="39" count="1" type="stmt"/>
+        <line num="40" count="1" type="stmt"/>
+        <line num="41" count="1" type="stmt"/>
+        <line num="43" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="44" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="46" count="0" type="stmt"/>
+        <line num="51" count="1" type="stmt"/>
+        <line num="52" count="1" type="stmt"/>
+        <line num="55" count="0" type="stmt"/>
+        <line num="57" count="1" type="cond" truecount="1" falsecount="1"/>
+        <line num="58" count="1" type="cond" truecount="1" falsecount="1"/>
+        <line num="60" count="1" type="stmt"/>
+        <line num="65" count="1" type="stmt"/>
+        <line num="69" count="1" type="stmt"/>
+        <line num="74" count="1" type="stmt"/>
+        <line num="84" count="1" type="stmt"/>
+        <line num="85" count="1" type="stmt"/>
+        <line num="90" count="1" type="stmt"/>
+        <line num="92" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="93" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="94" count="0" type="stmt"/>
+        <line num="99" count="1" type="stmt"/>
+        <line num="100" count="1" type="stmt"/>
+        <line num="102" count="1" type="cond" truecount="1" falsecount="1"/>
+        <line num="103" count="1" type="cond" truecount="1" falsecount="1"/>
+        <line num="104" count="1" type="stmt"/>
+      </file>
+    </package>
+  </project>
+</coverage>
