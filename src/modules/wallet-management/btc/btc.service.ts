@@ -10,7 +10,7 @@ export class BTCService {
   constructor(
     @inject(BTC_TOKENS.BTCNetwork) private network: bitcoin.Network,
     @inject(BTC_TOKENS.BTCKeyPair) private keyPair: any,
-    @inject(BTC_TOKENS.BTCDevAddress) private devAddress: string,
+    @inject(BTC_TOKENS.BTCDevAddress) public devAddress: string,
     @inject(BTC_TOKENS.MempoolApi) private MEMPOOL_API: string
   ) {}
 

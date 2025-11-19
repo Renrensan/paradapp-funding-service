@@ -28,7 +28,7 @@ export class XenditService {
     const data: PaymentRequestParameters = {
       amount: vaAmount,
       currency: "IDR",
-      referenceId: `ref-${Date.now()}`,
+      referenceId: dto.referenceId,
       paymentMethod: {
         virtualAccount: {
           channelCode: dto.channelCode as any,
@@ -54,6 +54,39 @@ export class XenditService {
       const code = err.errorCode || "UNKNOWN_ERROR";
 
       throw new HttpResponseError(status, `got xendit error: ${code}`, err);
+    }
+  }
+
+  async createQRISPaymentRequest(dto: {
+    amount: number;
+    referenceId: string;
+    description?: string;
+  }): Promise<PaymentRequest> {
+    const data: PaymentRequestParameters = {
+      amount: dto.amount,
+      currency: "IDR",
+      referenceId: dto.referenceId,
+      paymentMethod: {
+        type: "QR_CODE",
+        qrCode: {
+          channelCode: "QRIS",
+        },
+        reusability: "ONE_TIME_USE",
+      },
+      metadata: {
+        description: dto.description,
+      },
+    };
+
+    try {
+      const response: PaymentRequest =
+        await this.paymentRequestClient.createPaymentRequest({ data });
+      return response;
+    } catch (err: any) {
+      const status = err.status || 500;
+      const code = err.errorCode || "UNKNOWN_ERROR";
+
+      throw new HttpResponseError(status, `Xendit QRIS error: ${code}`, err);
     }
   }
 

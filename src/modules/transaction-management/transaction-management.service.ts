@@ -1,5 +1,10 @@
 import { inject, injectable } from "tsyringe";
-import { Prisma, PrismaClient, Transaction } from "@prisma/client";
+import {
+  Prisma,
+  PrismaClient,
+  Transaction,
+  TransactionType,
+} from "@prisma/client";
 import { DB_TOKENS } from "../../core/db/tokens";
 import { ITransactionManagementService } from "./transaction-management.type";
 
@@ -21,6 +26,16 @@ export class TransactionService implements ITransactionManagementService {
       where: { id, ...(args?.where || {}) },
       ...args,
     });
+  }
+
+  async createTransaction(
+    data: Prisma.TransactionCreateInput
+  ): Promise<Transaction> {
+    return this.prisma.transaction.create({ data });
+  }
+
+  async countTransactions(args?: Prisma.TransactionCountArgs): Promise<number> {
+    return this.prisma.transaction.count(args);
   }
 
   async updateTransaction(
@@ -57,5 +72,18 @@ export class TransactionService implements ITransactionManagementService {
     });
 
     return { expired: expired.count, deleted: deleted.count };
+  }
+
+  async countWaitingTransactions(
+    type: TransactionType,
+    walletAddress: string
+  ): Promise<number> {
+    return this.prisma.transaction.count({
+      where: {
+        type,
+        walletAddress: walletAddress,
+        status: "WAITING",
+      },
+    });
   }
 }

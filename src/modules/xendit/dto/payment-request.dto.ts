@@ -9,6 +9,8 @@ export interface PaymentRequestDTO {
   maxPaymentAmount: number;
   virtualAccountAmount: number;
 
+  referenceId: string;
+
   expiresAt: string; // ISO string
 }
 
@@ -22,5 +24,4 @@ export interface PayoutDTO {
   currency?: string; // default to PHP
   idempotencyKey?: string;
   metadata?: object;
-
 }

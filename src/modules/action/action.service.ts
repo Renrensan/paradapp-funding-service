@@ -8,6 +8,7 @@ import { roundToBinanceStep } from "../binance/binance.helper";
 import { REFERRAL, SHARING, TOKEN_CONSTANTS } from "../../common/fee.const";
 import { BTCService } from "../wallet-management/btc/btc.service";
 import { MAX_TX_AGE_MS } from "../../common/limitations.const";
+import { HederaService } from "../wallet-management/hedera/hedera.service";
 
 @injectable()
 export class ActionService {
@@ -15,10 +16,11 @@ export class ActionService {
     @inject(BinanceService) private binanceService: BinanceService,
     @inject(XenditService) private xenditService: XenditService,
     @inject(TransactionService) private transactionService: TransactionService,
-    @inject(BTCService) private btcService: BTCService
+    @inject(BTCService) private btcService: BTCService,
+    @inject(HederaService) private hederaService: HederaService
   ) {}
 
-  async markPaidXenditDeposits() {
+  public async markPaidXenditDeposits() {
     const waitingTxs = await this.transactionService.getTransactions({
       where: {
         status: "WAITING",
@@ -274,7 +276,7 @@ export class ActionService {
     }
   }
 
-  async processPaidTransactions() {
+  public async processPaidTransactions() {
     const paidTxs = await this.transactionService.getTransactions({
       where: {
         status: "PAID",
@@ -287,10 +289,16 @@ export class ActionService {
       } catch (err) {
         console.error(`Failed processing TX ${tx.id}`, err);
       }
+
+      // Send btc bulk deposits
+      await this.sendBulkDeposits();
+
+      // Finalize pending deposits
+      await this.finalizePendingDeposits();
     }
   }
 
-  async checkBitcoinPayments() {
+  public async checkBitcoinPayments() {
     const incomingTxs = await this.btcService.getIncomingTransactions(
       this.btcService["devAddress"]
     );
@@ -382,6 +390,109 @@ export class ActionService {
           break;
         }
       }
+    }
+  }
+
+  private async sendBulkDeposits() {
+    const paidDeposits = await this.transactionService.getTransactions({
+      where: {
+        status: "PAID",
+        type: "DEPOSIT",
+        txHash: null,
+        tokenAmount: { not: null },
+      },
+    });
+
+    const groups: { [key in TokenType]?: Transaction[] } = {};
+    for (const tx of paidDeposits) {
+      const type = tx.tokenType;
+      if (!groups[type]) groups[type] = [];
+      groups[type]!.push(tx);
+    }
+
+    const btcDeposits = groups.BTC || [];
+    if (btcDeposits.length) {
+      const btcPayload = btcDeposits.map((tx) => ({
+        id: tx.id,
+        btcAmount: tx.tokenAmount,
+        btcAddress: tx.walletAddress,
+        refBtcAmount: tx.refAmount,
+        refBtcAddress: tx.refAddress,
+      }));
+      const btcTxHash = await this.btcService.sendBTCBulkToUsers(btcPayload);
+      if (btcTxHash) {
+        await Promise.all(
+          btcDeposits.map((tx) =>
+            this.transactionService.updateTransaction(tx.id, {
+              txHash: btcTxHash,
+              status: "PENDING",
+            })
+          )
+        );
+      }
+    }
+
+    const hbarDeposits = groups.HBAR || [];
+    if (hbarDeposits.length) {
+      const transfers: { [accountId: string]: number } = {};
+      for (const tx of hbarDeposits) {
+        const addr = tx.walletAddress;
+        const amt = tx.tokenAmount || 0;
+        transfers[addr] = (transfers[addr] || 0) + amt;
+        if (tx.refAddress && tx.refAmount) {
+          const refAddr = tx.refAddress;
+          const refAmt = tx.refAmount;
+          transfers[refAddr] = (transfers[refAddr] || 0) + refAmt;
+        }
+      }
+      const payload = Object.entries(transfers).map(
+        ([accountId, hbarAmount]) => ({ accountId, hbarAmount })
+      );
+      const hbarTxId = await this.hederaService.sendHBulkToUsers(payload);
+      if (hbarTxId) {
+        await Promise.all(
+          hbarDeposits.map((tx) =>
+            this.transactionService.updateTransaction(tx.id, {
+              txHash: hbarTxId,
+              status: "PENDING",
+            })
+          )
+        );
+      }
+    }
+  }
+
+  private async finalizePendingDeposits() {
+    const pendingDeposits = await this.transactionService.getTransactions({
+      where: {
+        status: "PENDING",
+        type: "DEPOSIT",
+      },
+    });
+
+    for (const tx of pendingDeposits) {
+      try {
+        if (!tx.txHash) {
+          continue;
+        }
+
+        let confirmed: boolean;
+        if (tx.tokenType === "BTC") {
+          confirmed = await this.btcService.isTransactionConfirmed(tx.txHash);
+        } else if (tx.tokenType === "HBAR") {
+          confirmed = await this.hederaService.isTransactionConfirmed(
+            tx.txHash
+          );
+        } else {
+          continue;
+        }
+
+        if (confirmed) {
+          await this.transactionService.updateTransaction(tx.id, {
+            status: "COMPLETED",
+          });
+        }
+      } catch (err) {}
     }
   }
 }

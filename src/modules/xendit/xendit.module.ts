@@ -10,6 +10,8 @@ const paymentRequestClient = xenditClient.PaymentRequest;
 const balanceClient = xenditClient.Balance || new BalanceClient({ secretKey: process.env.XENDIT_SECRET_KEY! });
 const payoutClient = xenditClient.Payout || new PayoutClient({ secretKey: process.env.XENDIT_SECRET_KEY! });
 
+
+
 export function registerXenditModule() {
   container.registerInstance(XENDIT_TOKENS.PaymentRequestClient, paymentRequestClient);
   container.registerInstance(XENDIT_TOKENS.BalanceClient, balanceClient);
