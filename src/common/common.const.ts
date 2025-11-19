@@ -5,3 +5,4 @@ export const LIFETIME_REFERRERS = new Set<string>([
 "bc1qyuncvz55dnlzeu2eh5xy89uj089v2wd6gt0v74" ,//tika
 "bc1qa2w5s8x049fyzrw3pnhfd892wa0k3xgxxm4d0j" //caca
 ]);
+

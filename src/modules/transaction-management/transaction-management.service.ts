@@ -5,11 +5,11 @@ import { ITransactionManagementService } from "./transaction-management.type";
 
 @injectable()
 export class TransactionService implements ITransactionManagementService {
-  constructor(
-    @inject(DB_TOKENS.PRISMA_CLIENT) private prisma: PrismaClient
-  ) {}
+  constructor(@inject(DB_TOKENS.PRISMA_CLIENT) private prisma: PrismaClient) {}
 
-  async getTransactions(args?: Prisma.TransactionFindManyArgs): Promise<Transaction[]> {
+  async getTransactions(
+    args?: Prisma.TransactionFindManyArgs
+  ): Promise<Transaction[]> {
     return this.prisma.transaction.findMany(args);
   }
 
@@ -23,7 +23,6 @@ export class TransactionService implements ITransactionManagementService {
     });
   }
 
-
   async updateTransaction(
     id: string,
     data: Prisma.TransactionUpdateInput,
@@ -34,5 +33,29 @@ export class TransactionService implements ITransactionManagementService {
       data,
       ...args,
     });
+  }
+
+  async expireOldTransactions(): Promise<{ expired: number; deleted: number }> {
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
+    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+    const expired = await this.prisma.transaction.updateMany({
+      where: {
+        status: "WAITING",
+        createdAt: { lt: tenMinutesAgo },
+      },
+      data: {
+        status: "EXPIRED",
+      },
+    });
+
+    const deleted = await this.prisma.transaction.deleteMany({
+      where: {
+        status: "EXPIRED",
+        createdAt: { lt: weekAgo },
+      },
+    });
+
+    return { expired: expired.count, deleted: deleted.count };
   }
 }

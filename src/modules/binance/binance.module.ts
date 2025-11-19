@@ -31,5 +31,8 @@ export function registerBinanceModule() {
   container.registerSingleton(XENDIT_TOKENS.XenditService, XenditService);
 
   // Register Transaction Service
-  container.registerInstance(TRANSACTION_TOKENS.TRANSACTION_SERVICE, TransactionService)
+  container.registerInstance(
+    TRANSACTION_TOKENS.TRANSACTION_SERVICE,
+    TransactionService
+  );
 }

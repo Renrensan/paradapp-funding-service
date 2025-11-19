@@ -16,14 +16,20 @@ export type TransactionCreateInput = {
 };
 
 export interface ITransactionManagementService {
-    getSingleTransactionByID(
-      id: string,
-      args?: Prisma.TransactionFindFirstArgs
-    ): Promise<Transaction | null>
+  getTransactions(
+    args?: Prisma.TransactionFindManyArgs
+  ): Promise<Transaction[]>;
 
-    updateTransaction(
-        id: string,
-        data: Prisma.TransactionUpdateInput,
-        args?: Omit<Prisma.TransactionUpdateArgs, "where" | "data">
-      ): Promise<Transaction>
+  getSingleTransactionByID(
+    id: string,
+    args?: Prisma.TransactionFindFirstArgs
+  ): Promise<Transaction | null>;
+
+  updateTransaction(
+    id: string,
+    data: Prisma.TransactionUpdateInput,
+    args?: Omit<Prisma.TransactionUpdateArgs, "where" | "data">
+  ): Promise<Transaction>;
+
+  expireOldTransactions(): Promise<{ expired: number; deleted: number }>;
 }

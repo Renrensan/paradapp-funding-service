@@ -9,29 +9,27 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql" 
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
 model Transaction {
-  id             String             @id @default(cuid())
+  id             String            @id @default(cuid())
   type           TransactionType
-  status         TransactionStatus  @default(WAITING)
+  status         TransactionStatus @default(WAITING)
   tokenAmount    Float?
-  tokenType      TokenType    
-  idrAmount      Int?               
+  tokenType      TokenType
+  idrAmount      Int?
   walletAddress  String
-  paymentDetails Json?              
-  txHash         String?            
-  cexTxId        String?            @unique
+  paymentDetails Json?
+  txHash         String?
+  cexTxId        String?           @unique
   refAddress     String?
   refAmount      Float?
-  xenditTxId     String?            @unique
-  createdAt      DateTime           @default(now())
-  updatedAt      DateTime           @updatedAt
-
+  xenditTxId     String?           @unique
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
 }
-
 
 enum TransactionType {
   DEPOSIT
@@ -42,7 +40,6 @@ enum TokenType {
   BTC
   HBAR
 }
-
 
 enum TransactionStatus {
   WAITING
