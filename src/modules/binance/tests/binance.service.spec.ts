@@ -35,6 +35,29 @@ it("should buy all supported tokens using IDR amount from testnet", async () => 
   }
 });
 
+  it("should sell BTC and HBAR on testnet", async () => {
+    const sellAmounts = {
+      [TokenType.BTC]: 0.01,  // bigger so fees don't zero it out
+      [TokenType.HBAR]: 100      // enough above 1 to survive fee subtraction
+    };
+
+    for (const token of [TokenType.BTC, TokenType.HBAR]) {
+      const tokenAmount = sellAmounts[token];
+
+      try {
+        const result = await service.sellTokenFromBinance(token, tokenAmount);
+        console.log(`Sell ${token} result:`, result);
+
+        expect(result).toHaveProperty("cexTxId");
+        expect(typeof result.idrAmount).toBe("number");
+        expect(result.idrAmount).toBeGreaterThan(0);
+      } catch (err: any) {
+        console.error(`Failed to sell ${token}:`, err);
+        throw err;
+      }
+    }
+  });
+
 
 
 });

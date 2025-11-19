@@ -56,26 +56,37 @@ export class BinanceService implements IBinanceService {
   ): Promise<{ cexTxId: string; idrAmount: number }> {
     const cfg = TOKEN_CONSTANTS[token];
 
-    const toleranceSlippage =
-      Math.max(
-        Math.ceil(cfg.WITHDRAW.TOLERANCE_SLIPPAGE_PERCENT * tokenAmount * 1e6) / 1e6,
-        cfg.WITHDRAW.TOLERANCE_SLIPPAGE_FIX
-      );
+    const toleranceSlippage = Math.max(
+    roundToBinanceStep(
+        cfg.WITHDRAW.TOLERANCE_SLIPPAGE_PERCENT * tokenAmount,
+        token
+    ),
+    cfg.WITHDRAW.TOLERANCE_SLIPPAGE_FIX
+    );
+    console.log("tolerance:", toleranceSlippage)
 
-    const platformFee =
-      Math.max(
-        Math.ceil(SHARING.PLATFORM_FEE_PERCENT * tokenAmount * 1e6) / 1e6,
-        cfg.WITHDRAW.PLATFORM_FEE_FIX
-      );
+    const platformFee = Math.max(
+    roundToBinanceStep(
+        SHARING.PLATFORM_FEE_PERCENT * tokenAmount,
+        token
+    ),
+    cfg.WITHDRAW.PLATFORM_FEE_FIX
+    );
+
+    console.log("platform fee:", platformFee)
 
     const operationalToIndodaxFee = cfg.INTERNAL_FEES.OPERATIONAL_TO_INDODAX;
 
-    const indodaxFee =
-      Math.ceil(
-        (SHARING.INDODAX_FEE_PERCENT + cfg.WITHDRAW.TAX_PERCENT) *
-          (tokenAmount - toleranceSlippage - platformFee - operationalToIndodaxFee) *
-          1e8
-      ) / 1e8;
+    console.log()
+
+    const indodaxFee = roundToBinanceStep(
+    (SHARING.INDODAX_FEE_PERCENT + cfg.WITHDRAW.TAX_PERCENT) *
+        (tokenAmount - toleranceSlippage - platformFee - operationalToIndodaxFee),
+    token
+    );
+
+    console.log("indodax fee:", indodaxFee)
+
 
     const payoutFee = cfg.WITHDRAW.PAYOUT_GATEWAY_FEE;
 
@@ -86,10 +97,14 @@ export class BinanceService implements IBinanceService {
       platformFee -
       toleranceSlippage;
 
+    console.log("amount from binance:", amountForBinance)
+
     const tokenAmountSell = roundToBinanceStep(
-      Math.floor(amountForBinance * 1e6) / 1e6,
-      token
+        amountForBinance,
+        token
     );
+
+    console.log("token amount to sell", tokenAmountSell)
 
     const price = await this.getTokenToIdrPrice(token);
 
@@ -166,32 +181,37 @@ export class BinanceService implements IBinanceService {
         let tokenUserBefore = (idrUserBeforeOnChainFee / idrTotal) * tokenA;
 
         if (C.INTERNAL_FEES.BINANCE_TO_LEGACY_MAX !== undefined) {
-            const f1 = Math.max(
-            Math.ceil(
-                (C.INTERNAL_FEES.BINANCE_TO_LEGACY_MAX * idrAmount) / 20000000 * 1e6
-            ) / 1e6,
+        const f1 = Math.max(
+            roundToBinanceStep(
+                (C.INTERNAL_FEES.BINANCE_TO_LEGACY_MAX * idrAmount) / 20000000,
+                tx.tokenType
+            ),
             C.INTERNAL_FEES.BINANCE_TO_LEGACY_MIN
-            );
+        );
+
             tokenUserBefore -= f1;
         }
 
         if (C.INTERNAL_FEES.LEGACY_TO_SEGWIT_MAX !== undefined) {
-            const f2 = Math.max(
-            Math.ceil(
-                (C.INTERNAL_FEES.LEGACY_TO_SEGWIT_MAX * idrAmount) / 20000000 * 1e6
-            ) / 1e6,
-            C.INTERNAL_FEES.LEGACY_TO_SEGWIT_MIN
-            );
-            tokenUserBefore -= f2;
+        const f2 = Math.max(
+        roundToBinanceStep(
+            (C.INTERNAL_FEES.LEGACY_TO_SEGWIT_MAX * idrAmount) / 20000000,
+            tx.tokenType
+        ),
+        C.INTERNAL_FEES.LEGACY_TO_SEGWIT_MIN
+        );
+        tokenUserBefore -= f2;
         }
 
         if (C.INTERNAL_FEES.SEGWIT_TO_OPERATIONAL_MAX !== undefined) {
-            const f3 = Math.max(
-            Math.ceil(
-                (C.INTERNAL_FEES.SEGWIT_TO_OPERATIONAL_MAX * idrAmount) / 20000000 * 1e6
-            ) / 1e6,
+        const f3 = Math.max(
+            roundToBinanceStep(
+            (C.INTERNAL_FEES.SEGWIT_TO_OPERATIONAL_MAX * idrAmount) / 20000000,
+            tx.tokenType
+            ),
             C.INTERNAL_FEES.SEGWIT_TO_OPERATIONAL_MIN
-            );
+        );
+
             tokenUserBefore -= f3;
         }
 
@@ -199,7 +219,7 @@ export class BinanceService implements IBinanceService {
             tokenUserBefore -= C.INTERNAL_FEES.OPERATIONAL_TO_USER;
         }
 
-        const tokenUser = Math.floor(tokenUserBefore * 1e6) / 1e6;
+        const tokenUser = roundToBinanceStep(tokenUserBefore, tx.tokenType);
 
         let refAddress: string | null = tx.refAddress ?? null;
         let refTokenAmount: number | null = null;
@@ -226,13 +246,15 @@ export class BinanceService implements IBinanceService {
         const isFirstPaidDeposit = !firstReferralTx;
 
         if (refAddress && (isFirstPaidDeposit || isLifetimeRef)) {
-            refTokenAmount = Math.floor(
-            ((idrRef / idrTotal) * tokenA) * 1e6
-            ) / 1e6;
+        refTokenAmount = roundToBinanceStep(
+            (idrRef / idrTotal) * tokenA,
+            tx.tokenType
+        );
         } else if (refAddress) {
-            refAddress = null;
-            refTokenAmount = null;
+        refAddress = null;
+        refTokenAmount = null;
         }
+
 
         await this.transactionService.updateTransaction(tx.id, {
             cexTxId,
@@ -247,34 +269,30 @@ export class BinanceService implements IBinanceService {
         if (!tx.paymentDetails) return;
 
         if (!tx.cexTxId || !tx.idrAmount) {
-        const tolerance = Math.max(
-            Math.ceil(C.WITHDRAW.TOLERANCE_SLIPPAGE_PERCENT * tx.tokenAmount! * 1e6) /
-            1e6,
-            C.WITHDRAW.TOLERANCE_SLIPPAGE_FIX
-        );
+            const tolerance = Math.max(
+                roundToBinanceStep(C.WITHDRAW.TOLERANCE_SLIPPAGE_PERCENT * tx.tokenAmount!, tx.tokenType),
+                C.WITHDRAW.TOLERANCE_SLIPPAGE_FIX
+            );
 
-        const platformFee = Math.max(
-            Math.ceil(C.WITHDRAW.PLATFORM_FEE_PERCENT * tx.tokenAmount! * 1e6) /
-            1e6,
-            C.WITHDRAW.PLATFORM_FEE_FIX
-        );
+            const platformFee = Math.max(
+                roundToBinanceStep(C.WITHDRAW.PLATFORM_FEE_PERCENT * tx.tokenAmount!, tx.tokenType),
+                C.WITHDRAW.PLATFORM_FEE_FIX
+            );
+
 
         const opFee = C.INTERNAL_FEES.OPERATIONAL_TO_INDODAX ?? 0;
 
-        const indodaxFee =
-            Math.ceil(
-            (S.INDODAX_FEE_PERCENT + C.WITHDRAW.TAX_PERCENT) *
-            (tx.tokenAmount! - tolerance - platformFee - opFee) *
-            1e8
-            ) / 1e8;
+        const indodaxFee = roundToBinanceStep(
+        (S.INDODAX_FEE_PERCENT + C.WITHDRAW.TAX_PERCENT) *
+            (tx.tokenAmount! - tolerance - platformFee - opFee),
+        tx.tokenType
+        );
 
         const payoutFee = C.WITHDRAW.PAYOUT_GATEWAY_FEE;
 
         const binanceAmount = roundToBinanceStep(
-            Math.floor(
-            (tx.tokenAmount! - opFee - indodaxFee - platformFee - tolerance) * 1e6
-            ) / 1e6,
-            token
+            tx.tokenAmount! - opFee - indodaxFee - platformFee - tolerance,
+            tx.tokenType
         );
 
         const tokenToIdr = await this.getTokenToIdrPrice(token);

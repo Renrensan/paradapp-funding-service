@@ -5,4 +5,9 @@ export interface IBinanceService {
         token: TokenType,
         idrAmount: number
         ): Promise<{ cexTxId: string; tokenAmount: number }>
+
+    sellTokenFromBinance(
+        token: TokenType,
+        tokenAmount: number
+    ): Promise<{ cexTxId: string; idrAmount: number }>
 }
