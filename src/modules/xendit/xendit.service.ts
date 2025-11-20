@@ -25,6 +25,10 @@ export class XenditService {
     const vaAmount =
       dto.virtualAccountAmount > 0 ? dto.virtualAccountAmount : dto.amount;
 
+    const expiresAt = dto.expiresAt
+      ? new Date(dto.expiresAt)
+      : new Date(Date.now() + 30 * 60 * 1000); // default 30 minutes
+
     const data: PaymentRequestParameters = {
       amount: vaAmount,
       currency: "IDR",
@@ -36,7 +40,7 @@ export class XenditService {
           maxAmount: dto.maxPaymentAmount,
           channelProperties: {
             customerName: dto.customerName,
-            expiresAt: new Date(dto.expiresAt),
+            expiresAt: expiresAt,
           },
         },
         type: "VIRTUAL_ACCOUNT",
@@ -48,6 +52,7 @@ export class XenditService {
     try {
       const response: PaymentRequest =
         await this.paymentRequestClient.createPaymentRequest({ data });
+
       return response;
     } catch (err: any) {
       const status = err.status || 500;

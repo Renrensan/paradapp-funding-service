@@ -15,7 +15,6 @@ describe("XenditService Integration Test", () => {
   let paymentReferenceId: string;
   let payoutReferenceId: string;
 
-
   beforeAll(() => {
     service = container.resolve<XenditService>(XENDIT_TOKENS.XenditService);
   });
@@ -30,6 +29,7 @@ describe("XenditService Integration Test", () => {
       maxPaymentAmount: 1000,
       virtualAccountAmount: 1000,
       expiresAt: new Date(Date.now() + 3600 * 1000).toISOString(),
+      referenceId: "222",
     };
 
     try {
@@ -69,7 +69,7 @@ describe("XenditService Integration Test", () => {
     }
   });
 
-   it("should get the current Xendit balance", async () => {
+  it("should get the current Xendit balance", async () => {
     try {
       const balance = await service.getBalance();
       console.log("Xendit balance response:", balance);
@@ -128,7 +128,4 @@ describe("XenditService Integration Test", () => {
       throw err; // fail for other errors
     }
   });
-
 });
-
-
