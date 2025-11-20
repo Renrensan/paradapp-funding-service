@@ -11,7 +11,7 @@ export async function bootstrap() {
   app.use(express.json());
 
   registerDependencies(app);
-  TransactionProcessorModule.init(10000);
+  TransactionProcessorModule.init(5000, 3000);
 
   const port = process.env.PORT || 8080;
   app.listen(port, () => {});

@@ -3,10 +3,12 @@ import { interval, from, Subscription } from "rxjs";
 import { exhaustMap } from "rxjs/operators";
 import { ActionService } from "../action/action.service";
 import { TransactionService } from "../transaction-management/transaction-management.service";
+import { Logger } from "../../common/logger";
 
 @injectable()
 export class TransactionProcessorService {
   private subscription: Subscription | null = null;
+  private logger = new Logger("TransactionProcessor");
 
   constructor(
     @inject(ActionService) private actionService: ActionService,
@@ -17,92 +19,94 @@ export class TransactionProcessorService {
    * Start the background processor.
    * Returns the RxJS Subscription so caller can unsubscribe when shutting down.
    */
-  start(intervalMs = 10000): Subscription {
-    console.log(
-      `🔁 Transaction Processor will run every ${intervalMs / 1000}s`
-    );
+  start(intervalMs: number): Subscription {
+    this.logger.info(`Processor will run every ${intervalMs / 1000}s`);
 
-    // If already started, return existing subscription
     if (this.subscription && !this.subscription.closed) {
-      console.log("⚠️ Transaction Processor already running.");
+      this.logger.warn("Processor already running, ignoring start()");
       return this.subscription;
     }
 
     this.subscription = interval(intervalMs)
       .pipe(
-        // exhaustMap ignores new ticks while the inner observable is running — prevents overlap
         exhaustMap(() => {
-          console.log("▶️ Starting Transaction Processor...");
+          this.logger.debug("Tick started → executing run()");
           return from(this.run());
         })
       )
       .subscribe({
         error: (err: any) =>
-          console.error(
-            "❌ Uncaught error in transaction processor stream:",
-            err
-          ),
+          this.logger.error("Uncaught error in processor stream", err),
       });
 
+    this.logger.info(`Processor started (interval ${intervalMs}ms)`);
     return this.subscription;
   }
 
-  /**
-   * Stop the background processor if running
-   */
   stop() {
     if (this.subscription) {
       this.subscription.unsubscribe();
       this.subscription = null;
-      console.log("⏹ Transaction Processor stopped.");
+      this.logger.info("Processor stopped");
     }
   }
 
   private async run(): Promise<void> {
+    this.logger.debug("Run cycle begin");
+
     try {
-      // 1) mark xendit deposits (checks Xendit and mark WAITING->PAID)
-      console.log("🔍 Marking Xendit deposits (if any)...");
+      // ===== 1) Mark Xendit Deposits =====
+      this.logger.info("Checking Xendit deposits...");
       try {
-        // ActionService implements markPaidXenditDeposits
-        // it's fine if it throws — we catch individually to keep pipeline robust
         await this.actionService.markPaidXenditDeposits();
+        this.logger.debug("markPaidXenditDeposits completed");
       } catch (err) {
-        console.error("❗ markPaidXenditDeposits failed:", err);
+        this.logger.error("markPaidXenditDeposits failed", err);
       }
 
-      // 2) check on-chain bitcoin payments for withdrawals (and update statuses)
-      console.log("🔍 Checking for Bitcoin payments...");
+      // ===== 2) BTC Payments =====
+      this.logger.info("Checking Bitcoin payments...");
       try {
         await this.actionService.checkBitcoinPayments();
+        this.logger.debug("checkBitcoinPayments completed");
       } catch (err) {
-        console.error("❗ checkBitcoinPayments failed:", err);
+        this.logger.error("checkBitcoinPayments failed", err);
       }
 
-      // 3) expire old transactions (transactionService handles expiry & deletion)
-      console.log("🔍 Checking for expired transactions...");
+      // ===== 3) HEDERA Payments =====
+      this.logger.info("Checking Hedera payments...");
       try {
-        const res = await this.transactionService.expireOldTransactions();
-        if (res) {
-          console.log(
-            `🔁 Expire/Delete results — expired: ${res.expired}, deleted: ${res.deleted}`
-          );
-        }
+        await this.actionService.checkHbarPayments();
+        this.logger.debug("checkHbarPayments completed");
       } catch (err) {
-        console.error("❗ expireOldTransactions failed:", err);
+        this.logger.error("checkHbarPayments failed", err);
       }
 
-      // 4) process paid transactions (buys/sells, payouts, bulk sends, finalize)
-      console.log("🔍 Processing paid transactions...");
+      // ===== 3) Expire old transactions =====
+      // this.logger.info("Checking expired transactions...");
+      // try {
+      //   const result = await this.transactionService.expireOldTransactions();
+      //   if (result) {
+      //     this.logger.debug(
+      //       `Expired: ${result.expired}, Deleted: ${result.deleted}`
+      //     );
+      //   }
+      // } catch (err) {
+      //   this.logger.error("expireOldTransactions failed", err);
+      // }
+
+      // ===== 4) Process paid transactions =====
+      this.logger.info("Processing paid transactions...");
       try {
         await this.actionService.processPaidTransactions();
+        this.logger.debug("processPaidTransactions completed");
       } catch (err) {
-        console.error("❗ processPaidTransactions failed:", err);
+        this.logger.error("processPaidTransactions failed", err);
       }
     } catch (err) {
-      // top-level safety - should rarely happen because each step has its own try/catch
-      console.error("❌ Error in processor run:", err);
+      this.logger.error("Unexpected error in run()", err);
     } finally {
-      console.log("✅ Transaction Processor finished this tick.");
+      this.logger.info("Tick finished");
     }
   }
 }

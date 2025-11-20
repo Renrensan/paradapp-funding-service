@@ -9,9 +9,14 @@ import { REFERRAL, SHARING, TOKEN_CONSTANTS } from "../../common/fee.const";
 import { BTCService } from "../wallet-management/btc/btc.service";
 import { MAX_TX_AGE_MS } from "../../common/limitations.const";
 import { HederaService } from "../wallet-management/hedera/hedera.service";
+import { logger } from "../../common/logger";
+import { traceId } from "../../common/trace";
+import { toEvmAddressIfNeeded } from "../../common/helper/validateAddress.helper";
 
 @injectable()
 export class ActionService {
+  private readonly log = logger.child({ service: "ActionService" });
+
   constructor(
     @inject(BinanceService) private binanceService: BinanceService,
     @inject(XenditService) private xenditService: XenditService,
@@ -20,10 +25,11 @@ export class ActionService {
     @inject(HederaService) private hederaService: HederaService
   ) {}
 
-  public async markPaidXenditDeposits() {
-    console.log(
-      "ActionService.markPaidXenditDeposits: checking waiting DEPOSITs"
-    );
+  public async markPaidXenditDeposits(_trace?: string) {
+    const t = traceId(_trace);
+    const lg = this.log.child({ trace: t });
+    lg.info("markPaidXenditDeposits:start");
+
     const waitingTxs = await this.transactionService.getTransactions({
       where: {
         status: "WAITING",
@@ -33,48 +39,33 @@ export class ActionService {
     });
 
     for (const tx of waitingTxs) {
-      console.log(
-        "ActionService.markPaidXenditDeposits: checking Xendit status",
-        tx.id
-      );
+      const txLg = lg.child({ txId: tx.id });
+      txLg.info("check-xendit-status:start");
       try {
         const paymentRequest =
           await this.xenditService.checkXenditPaymentStatus(
             tx.xenditTxId as string
           );
-
         const status = paymentRequest?.status;
-        console.log(
-          "ActionService.markPaidXenditDeposits: Xendit status =",
-          status,
-          tx.id
-        );
-
+        txLg.info({ status }, "check-xendit-status:result");
         if (status === "SUCCEEDED") {
-          console.log(
-            "ActionService.markPaidXenditDeposits: marking TX as PAID",
-            tx.id
-          );
+          txLg.info("marking-as-PAID");
           await this.transactionService.updateTransaction(tx.id, {
             status: "PAID",
           });
         }
-      } catch (err) {
-        console.error(
-          "ActionService.markPaidXenditDeposits: error",
-          tx.id,
-          err
-        );
+      } catch (err: any) {
+        txLg.error({ err }, "check-xendit-status:error");
       }
     }
+
+    lg.info("markPaidXenditDeposits:end");
   }
 
-  private async processSinglePaidTransaction(tx: Transaction) {
-    console.log(
-      "ActionService.processSinglePaidTransaction: start",
-      tx.id,
-      tx.type
-    );
+  private async processSinglePaidTransaction(tx: Transaction, _trace?: string) {
+    const t = traceId(_trace);
+    const lg = this.log.child({ trace: t, txId: tx.id });
+    lg.info({ type: tx.type }, "processSinglePaidTransaction:start");
 
     const token = tx.tokenType as TokenType;
     const C = TOKEN_CONSTANTS[token];
@@ -82,17 +73,9 @@ export class ActionService {
     const R = REFERRAL;
 
     if (tx.type === "DEPOSIT") {
-      console.log(
-        "ActionService.processSinglePaidTransaction: processing DEPOSIT",
-        tx.id
-      );
-
+      lg.info("deposit:starting");
       if (!tx.cexTxId || !tx.tokenAmount) {
-        console.log(
-          "ActionService.processSinglePaidTransaction: buying token from Binance",
-          tx.id
-        );
-
+        lg.info("deposit:buying-on-binance:start");
         const idrAmount = tx.idrAmount ?? 0;
         const method = (tx.paymentDetails as any)?.method;
 
@@ -136,15 +119,22 @@ export class ActionService {
           Math.floor(idrAmount * R.REWARD_PERCENT)
         );
 
-        const { cexTxId, tokenAmount } =
-          await this.binanceService.buyTokenFromBinance(token, idrTotal);
+        let cexTxId: string | undefined;
+        let tokenAmount: number | undefined;
+        try {
+          const res = await this.binanceService.buyTokenFromBinance(
+            token,
+            idrTotal
+          );
+          cexTxId = res.cexTxId;
+          tokenAmount = res.tokenAmount;
+          lg.info({ cexTxId }, "binance:buy:success");
+        } catch (err: any) {
+          lg.error({ err }, "binance:buy:failed");
+          throw err;
+        }
 
-        console.log(
-          "ActionService.processSinglePaidTransaction: Binance bought",
-          tx.id
-        );
-
-        const tokenA = tokenAmount;
+        const tokenA = tokenAmount ?? 0;
         let tokenUserBefore =
           idrTotal === 0 ? 0 : (idrUserBeforeOnChainFee / idrTotal) * tokenA;
 
@@ -195,11 +185,6 @@ export class ActionService {
         let refAddress: string | null = tx.refAddress ?? null;
         let refTokenAmount: number | null = null;
 
-        console.log(
-          "ActionService.processSinglePaidTransaction: referral check",
-          tx.id
-        );
-
         const firstReferralTx =
           await this.transactionService.getSingleTransactionByID("", {
             where: {
@@ -237,33 +222,23 @@ export class ActionService {
           refTokenAmount = null;
         }
 
-        console.log(
-          "ActionService.processSinglePaidTransaction: updating DEPOSIT",
-          tx.id
-        );
-
         await this.transactionService.updateTransaction(tx.id, {
           cexTxId,
           tokenAmount: tokenUser,
           refAddress,
           refAmount: refTokenAmount,
         });
+
+        lg.info("deposit:updated-after-binance");
       }
     }
 
     if (tx.type === "WITHDRAWAL") {
-      console.log(
-        "ActionService.processSinglePaidTransaction: processing WITHDRAWAL",
-        tx.id
-      );
-
+      lg.info("withdrawal:starting");
       if (!tx.paymentDetails) return;
 
       if (!tx.cexTxId || !tx.idrAmount) {
-        console.log(
-          "ActionService.processSinglePaidTransaction: selling token on Binance",
-          tx.id
-        );
+        lg.info("withdrawal:selling-on-binance:start");
 
         const tolerance = Math.max(
           roundToBinanceStep(
@@ -288,9 +263,22 @@ export class ActionService {
             ((tx.tokenAmount ?? 0) - tolerance - platformFee - opFee),
           tx.tokenType
         );
-
         const payoutFee = C.WITHDRAW.PAYOUT_GATEWAY_FEE;
+        const candidateAmount =
+          (tx.tokenAmount ?? 0) - opFee - indodaxFee - platformFee - tolerance;
+        const stepped = roundToBinanceStep(candidateAmount, tx.tokenType);
 
+        if (stepped <= 0) {
+          console.error(
+            "Amount too small after fees or below Binance minQty/stepSize/notional"
+          );
+          console.error(
+            "Check: https://www.binance.com/en/trade/rule?symbol=" +
+              token +
+              "USDT"
+          );
+          return; // skip trade
+        }
         const binanceAmount = roundToBinanceStep(
           (tx.tokenAmount ?? 0) - opFee - indodaxFee - platformFee - tolerance,
           tx.tokenType
@@ -306,23 +294,16 @@ export class ActionService {
 
         const cexTxId = String(response.cexTxId ?? response);
 
-        console.log(
-          "ActionService.processSinglePaidTransaction: updated WITHDRAWAL Binance step",
-          tx.id
-        );
-
         await this.transactionService.updateTransaction(tx.id, {
           cexTxId,
           idrAmount,
         });
+
+        lg.info({ cexTxId }, "withdrawal:updated-after-binance");
       }
 
       if (tx.cexTxId && tx.idrAmount && !tx.xenditTxId) {
-        console.log(
-          "ActionService.processSinglePaidTransaction: creating Xendit payout",
-          tx.id
-        );
-
+        lg.info("withdrawal:create-xendit-payout");
         const createPayoutResponse = await this.xenditService.createPayout({
           amount: tx.idrAmount,
           accountNumber: (tx.paymentDetails as any).accountNumber,
@@ -336,33 +317,33 @@ export class ActionService {
         await this.transactionService.updateTransaction(tx.id, {
           xenditTxId: createPayoutResponse.id,
         });
+
+        lg.info(
+          { payoutId: createPayoutResponse.id },
+          "withdrawal:xendit-payout-created"
+        );
       }
 
       if (tx.cexTxId && tx.xenditTxId) {
-        console.log(
-          "ActionService.processSinglePaidTransaction: checking payout status",
-          tx.id
-        );
-
+        lg.info("withdrawal:check-payout-status");
         const payoutStatus = await this.xenditService.getPayout(tx.xenditTxId);
-
         if (payoutStatus?.status === "ACCEPTED") {
-          console.log(
-            "ActionService.processSinglePaidTransaction: marking withdrawal COMPLETED",
-            tx.id
-          );
           await this.transactionService.updateTransaction(tx.id, {
             status: "COMPLETED",
           });
+          lg.info("withdrawal:marked-completed");
         }
       }
     }
 
-    console.log("ActionService.processSinglePaidTransaction: end", tx.id);
+    lg.info("processSinglePaidTransaction:end");
   }
 
-  public async processPaidTransactions() {
-    console.log("ActionService.processPaidTransactions: start");
+  public async processPaidTransactions(_trace?: string) {
+    const t = traceId(_trace);
+    const lg = this.log.child({ trace: t });
+    lg.info("processPaidTransactions:start");
+
     const paidTxs = await this.transactionService.getTransactions({
       where: {
         status: "PAID",
@@ -370,24 +351,26 @@ export class ActionService {
     });
 
     for (const tx of paidTxs) {
-      console.log("ActionService.processPaidTransactions: processing", tx.id);
+      const txLg = lg.child({ txId: tx.id });
+      txLg.info("processing-paid-tx:start");
       try {
-        await this.processSinglePaidTransaction(tx);
-      } catch (err) {
-        console.error(
-          `ActionService.processPaidTransactions: failed ${tx.id}`,
-          err
-        );
+        await this.processSinglePaidTransaction(tx, t);
+        txLg.info("processing-paid-tx:done");
+      } catch (err: any) {
+        txLg.error({ err }, "processing-paid-tx:failed");
       }
     }
 
-    await this.sendBulkDeposits();
-    await this.finalizePendingDeposits();
-    console.log("ActionService.processPaidTransactions: end");
+    await this.sendBulkDeposits(t);
+    await this.finalizePendingDeposits(t);
+    lg.info("processPaidTransactions:end");
   }
 
-  public async checkBitcoinPayments() {
-    console.log("ActionService.checkBitcoinPayments: start");
+  public async checkBitcoinPayments(_trace?: string) {
+    const t = traceId(_trace);
+    const lg = this.log.child({ trace: t });
+    lg.info("checkBitcoinPayments:start");
+
     const incomingTxs = await this.btcService.getIncomingTransactions(
       this.btcService["devAddress"]
     );
@@ -399,10 +382,8 @@ export class ActionService {
     });
 
     for (const tx of waiting) {
-      console.log(
-        "ActionService.checkBitcoinPayments: checking WAITING withdrawal",
-        tx.id
-      );
+      const txLg = lg.child({ txId: tx.id });
+      txLg.info("check-waiting-withdrawal");
       for (const incoming of incomingTxs) {
         const alreadyUsed =
           await this.transactionService.getSingleTransactionByID("", {
@@ -419,7 +400,7 @@ export class ActionService {
           txAge <= MAX_TX_AGE_MS;
 
         if (matches) {
-          console.log("ActionService.checkBitcoinPayments: BTC matched", tx.id);
+          txLg.info({ incomingTx: incoming.txid }, "btc:match-found");
           await this.transactionService.updateTransaction(tx.id, {
             status: "PENDING",
             txHash: incoming.txid,
@@ -436,26 +417,20 @@ export class ActionService {
     });
 
     for (const tx of pending) {
+      const txLg = lg.child({ txId: tx.id });
       if (!tx.txHash) continue;
-      console.log(
-        "ActionService.checkBitcoinPayments: checking PENDING",
-        tx.id
-      );
-
-      const stillExists = incomingTxs.find((t: any) => t.txid === tx.txHash);
+      txLg.info("check-pending-withdrawal");
+      const stillExists = incomingTxs.find((t2: any) => t2.txid === tx.txHash);
 
       if (stillExists) {
         const confirmed = await this.btcService.isTransactionConfirmed(
           tx.txHash
         );
         if (confirmed) {
-          console.log(
-            "ActionService.checkBitcoinPayments: marking PAID",
-            tx.id
-          );
           await this.transactionService.updateTransaction(tx.id, {
             status: "PAID",
           });
+          txLg.info("pending->paid");
         }
         continue;
       }
@@ -476,10 +451,6 @@ export class ActionService {
           txAge <= MAX_TX_AGE_MS;
 
         if (matches) {
-          console.log(
-            "ActionService.checkBitcoinPayments: updated BTC hash",
-            tx.id
-          );
           await this.transactionService.updateTransaction(tx.id, {
             txHash: incoming.txid,
           });
@@ -489,10 +460,118 @@ export class ActionService {
           );
 
           if (confirmed) {
-            console.log(
-              "ActionService.checkBitcoinPayments: marking PAID",
-              tx.id
-            );
+            await this.transactionService.updateTransaction(tx.id, {
+              status: "PAID",
+            });
+            txLg.info("pending->paid:new-match");
+          }
+          break;
+        }
+      }
+    }
+
+    lg.info("checkBitcoinPayments:end");
+  }
+
+  public async checkHbarPayments(_trace?: string) {
+    const t = traceId(_trace);
+    const lg = this.log.child({ trace: t });
+    lg.info("checkHbarPayments:start");
+
+    const operatorEvm = await toEvmAddressIfNeeded(
+      this.hederaService["operatorId"]
+    );
+    const usedTxIds = new Set<string>();
+
+    const waiting = await this.transactionService.getTransactions({
+      where: { type: "WITHDRAWAL", status: "WAITING" },
+    });
+
+    for (const tx of waiting) {
+      const userEvm = await toEvmAddressIfNeeded(tx.walletAddress);
+      const incomingTxs = await this.hederaService.getIncomingTransactions(
+        userEvm
+      );
+
+      for (const incoming of incomingTxs) {
+        const alreadyUsed =
+          await this.transactionService.getSingleTransactionByID("", {
+            where: { txHash: incoming.txid },
+          });
+
+        const txAge = Date.now() - new Date(incoming.timestamp).getTime();
+
+        const matches =
+          !alreadyUsed &&
+          !usedTxIds.has(incoming.txid) &&
+          incoming.from === userEvm &&
+          incoming.to === operatorEvm &&
+          Math.abs(incoming.amount - (tx.tokenAmount ?? 0)) < 0.00000001 &&
+          txAge <= MAX_TX_AGE_MS;
+
+        if (matches) {
+          await this.transactionService.updateTransaction(tx.id, {
+            status: "PENDING",
+            txHash: incoming.txid,
+          });
+
+          usedTxIds.add(incoming.txid);
+          break;
+        }
+      }
+    }
+
+    const pending = await this.transactionService.getTransactions({
+      where: { type: "WITHDRAWAL", status: "PENDING" },
+    });
+
+    for (const tx of pending) {
+      if (!tx.txHash) continue;
+
+      const userEvm = await toEvmAddressIfNeeded(tx.walletAddress);
+      const incomingTxs = await this.hederaService.getIncomingTransactions(
+        userEvm
+      );
+      const existing = incomingTxs.find((i: any) => i.txid === tx.txHash);
+
+      if (existing) {
+        const confirmed = await this.hederaService.isTransactionConfirmed(
+          tx.txHash
+        );
+        if (confirmed) {
+          await this.transactionService.updateTransaction(tx.id, {
+            status: "PAID",
+          });
+        }
+        continue;
+      }
+
+      for (const incoming of incomingTxs) {
+        const alreadyUsed =
+          await this.transactionService.getSingleTransactionByID("", {
+            where: { txHash: incoming.txid },
+          });
+
+        const txAge = Date.now() - new Date(incoming.timestamp).getTime();
+
+        const matches =
+          !alreadyUsed &&
+          !usedTxIds.has(incoming.txid) &&
+          incoming.from === userEvm &&
+          incoming.to === operatorEvm &&
+          Math.abs(incoming.amount - (tx.tokenAmount ?? 0)) < 0.00000001 &&
+          txAge <= MAX_TX_AGE_MS;
+
+        if (matches) {
+          await this.transactionService.updateTransaction(tx.id, {
+            txHash: incoming.txid,
+          });
+
+          const confirmed = await this.hederaService.isTransactionConfirmed(
+            incoming.txid
+          );
+
+          if (confirmed) {
             await this.transactionService.updateTransaction(tx.id, {
               status: "PAID",
             });
@@ -501,11 +580,15 @@ export class ActionService {
         }
       }
     }
-    console.log("ActionService.checkBitcoinPayments: end");
+
+    lg.info("checkHbarPayments:end");
   }
 
-  private async sendBulkDeposits() {
-    console.log("ActionService.sendBulkDeposits: start");
+  private async sendBulkDeposits(_trace?: string) {
+    const t = traceId(_trace);
+    const lg = this.log.child({ trace: t });
+    lg.info("sendBulkDeposits:start");
+
     const paidDeposits = await this.transactionService.getTransactions({
       where: {
         status: "PAID",
@@ -524,7 +607,7 @@ export class ActionService {
 
     const btcDeposits = groups.BTC || [];
     if (btcDeposits.length) {
-      console.log("ActionService.sendBulkDeposits: sending BTC bulk");
+      lg.info({ count: btcDeposits.length }, "btc:bulk-send:start");
       const btcPayload = btcDeposits.map((tx) => ({
         id: tx.id,
         btcAmount: tx.tokenAmount,
@@ -542,12 +625,15 @@ export class ActionService {
             })
           )
         );
+        lg.info({ txHash: btcTxHash }, "btc:bulk-send:done");
+      } else {
+        lg.warn("btc:bulk-send:no-txhash");
       }
     }
 
     const hbarDeposits = groups.HBAR || [];
     if (hbarDeposits.length) {
-      console.log("ActionService.sendBulkDeposits: sending HBAR bulk");
+      lg.info({ count: hbarDeposits.length }, "hbar:bulk-send:start");
       const transfers: { [accountId: string]: number } = {};
       for (const tx of hbarDeposits) {
         const addr = tx.walletAddress;
@@ -560,7 +646,10 @@ export class ActionService {
         }
       }
       const payload = Object.entries(transfers).map(
-        ([accountId, hbarAmount]) => ({ accountId, hbarAmount })
+        ([accountId, hbarAmount]) => ({
+          accountId,
+          hbarAmount,
+        })
       );
       const hbarTxId = await this.hederaService.sendHBulkToUsers(payload);
       if (hbarTxId) {
@@ -572,13 +661,19 @@ export class ActionService {
             })
           )
         );
+        lg.info({ txHash: hbarTxId }, "hbar:bulk-send:done");
+      } else {
+        lg.warn("hbar:bulk-send:no-txid");
       }
     }
-    console.log("ActionService.sendBulkDeposits: end");
+
+    lg.info("sendBulkDeposits:end");
   }
 
-  private async finalizePendingDeposits() {
-    console.log("ActionService.finalizePendingDeposits: start");
+  private async finalizePendingDeposits(_trace?: string) {
+    const t = traceId(_trace);
+    const lg = this.log.child({ trace: t });
+    lg.info("finalizePendingDeposits:start");
 
     const pendingDeposits = await this.transactionService.getTransactions({
       where: {
@@ -588,10 +683,8 @@ export class ActionService {
     });
 
     for (const tx of pendingDeposits) {
-      console.log(
-        "ActionService.finalizePendingDeposits: checking deposit",
-        tx.id
-      );
+      const txLg = lg.child({ txId: tx.id });
+      txLg.info("finalize:checking");
       try {
         if (!tx.txHash) continue;
 
@@ -607,23 +700,16 @@ export class ActionService {
         }
 
         if (confirmed) {
-          console.log(
-            "ActionService.finalizePendingDeposits: marking COMPLETED",
-            tx.id
-          );
           await this.transactionService.updateTransaction(tx.id, {
             status: "COMPLETED",
           });
+          txLg.info("finalize:marked-completed");
         }
-      } catch (err) {
-        console.error(
-          "ActionService.finalizePendingDeposits: error",
-          tx.id,
-          err
-        );
+      } catch (err: any) {
+        txLg.error({ err }, "finalize:error");
       }
     }
 
-    console.log("ActionService.finalizePendingDeposits: end");
+    lg.info("finalizePendingDeposits:end");
   }
 }

@@ -1,36 +1,38 @@
 import { container } from "tsyringe";
 import { TransactionProcessorService } from "./transaction-processor.service";
+import { XenditResponsiveService } from "./xendit-processor.service";
 
 export class TransactionProcessorModule {
   private static initialized = false;
 
-  static init(intervalMs = 10000) {
+  private static transactionProcessor: TransactionProcessorService | null =
+    null;
+  private static xenditResponsive: XenditResponsiveService | null = null;
+
+  static init(transactionIntervalMs = 10000, xenditIntervalMs = 10000) {
     if (this.initialized) {
-      console.log(
-        "⚠️ TransactionProcessorModule.init() called more than once. Ignoring."
-      );
       return;
     }
 
     this.initialized = true;
 
-    // Resolve service from DI container
-    const processor = container.resolve(TransactionProcessorService);
+    // Resolve services
+    this.transactionProcessor = container.resolve(TransactionProcessorService);
+    this.xenditResponsive = container.resolve(XenditResponsiveService);
 
-    // Start background worker
-    processor.start(intervalMs);
-
-    console.log(
-      `🚀 TransactionProcessorModule initialized (interval: ${intervalMs}ms)`
-    );
+    // Start services
+    this.transactionProcessor.start(transactionIntervalMs);
+    this.xenditResponsive.start(xenditIntervalMs);
   }
 
   static stop() {
     if (!this.initialized) return;
 
-    const processor = container.resolve(TransactionProcessorService);
-    processor.stop();
+    if (this.transactionProcessor) this.transactionProcessor.stop();
+    if (this.xenditResponsive) this.xenditResponsive.stop();
 
-    console.log("🛑 TransactionProcessorModule stopped.");
+    this.transactionProcessor = null;
+    this.xenditResponsive = null;
+    this.initialized = false;
   }
 }

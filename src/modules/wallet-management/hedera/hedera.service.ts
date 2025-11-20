@@ -10,6 +10,10 @@ import {
 import { toMirrorId } from "./hedera.helper";
 import { HttpResponseError } from "../../../core/response/httpresponse";
 import { IHederaService } from "./hedera.type";
+import {
+  toEvmAddressIfNeeded,
+  toNativeAddress,
+} from "../../../common/helper/validateAddress.helper";
 
 @injectable()
 export class HederaService implements IHederaService {
@@ -99,7 +103,7 @@ export class HederaService implements IHederaService {
       const res = await axios.get(
         `${this.mirrorBase}/transactions/${mirrorId}`
       );
-      const tx = res.data;
+      const tx = res.data?.transactions?.[0];
       return tx?.result === "SUCCESS";
     } catch (err: any) {
       throw new HttpResponseError(
@@ -110,50 +114,91 @@ export class HederaService implements IHederaService {
     }
   }
 
-  public async getIncomingTransactions(accountId: string) {
+  public async getIncomingTransactions(userIdOrEvm: string) {
+    let nativeId;
+
+    // Detect if it's EVM or native
+    if (userIdOrEvm.startsWith("0x") || userIdOrEvm.length === 42) {
+      nativeId = await toNativeAddress(userIdOrEvm);
+      if (!nativeId) return [];
+    } else {
+      nativeId = userIdOrEvm;
+    }
+
+    // We need the operator's native ID once
+    const operatorNativeId = await toNativeAddress(this.operatorId);
+    if (!operatorNativeId) return [];
+
+    const results: any[] = [];
+    let url =
+      `${this.mirrorBase}/transactions` +
+      `?account.id=${encodeURIComponent(nativeId)}` +
+      `&transactiontype=cryptotransfer` +
+      `&limit=100` +
+      `&order=desc`;
+
     try {
-      const res = await axios.get(
-        `${this.mirrorBase}/transactions?account.id=${encodeURIComponent(
-          accountId
-        )}&limit=50`
-      );
-      const items = res.data.transactions ?? [];
-      const results = [];
+      while (url) {
+        const res = await axios.get(url);
+        const transactions = res.data.transactions || [];
 
-      for (const tx of items) {
-        const timestamp = tx.consensus_timestamp
-          ? new Date(
-              Number(tx.consensus_timestamp.split(".")[0]) * 1000
-            ).toISOString()
-          : new Date().toISOString();
+        for (const tx of transactions) {
+          if (tx.result !== "SUCCESS") continue;
 
-        const credits = (tx.transfers ?? []).filter(
-          (t: any) => String(t.account) === accountId
-        );
+          const transfers = tx.transfers || [];
+          const timestamp = tx.consensus_timestamp
+            ? new Date(
+                Number(tx.consensus_timestamp.split(".")[0]) * 1000
+              ).toISOString()
+            : new Date().toISOString();
 
-        for (const c of credits) {
-          const fromEntry =
-            (tx.transfers ?? []).find(
-              (t: any) => t.amount === c.amount && t.account !== accountId
-            ) ?? null;
+          // 1. User must have sent HBAR (negative amount, not approval)
+          const userSend = transfers.find(
+            (t: any) =>
+              String(t.account) === nativeId &&
+              t.amount < 0 &&
+              t.is_approval !== true
+          );
+          if (!userSend) continue;
+
+          // 2. Operator must have received HBAR in the same transaction
+          const operatorReceive = transfers.find(
+            (t: any) =>
+              String(t.account) === operatorNativeId &&
+              t.amount > 0 &&
+              t.is_approval !== true
+          );
+          if (!operatorReceive) continue;
+
+          // Use the amount the operator actually received (clean, fee-free)
+          const amountHbar = operatorReceive.amount / 1e8;
+
+          // Convert addresses back to EVM format for consistency
+          const fromEvm = await toEvmAddressIfNeeded(nativeId);
+          const toEvm = await toEvmAddressIfNeeded(operatorNativeId);
 
           results.push({
-            txid: tx.transaction_id ?? "",
-            from: fromEntry?.account ?? "unknown",
-            amount: Number(c.amount) / 1e8,
-            confirmed: tx.result === "SUCCESS",
+            txid: tx.transaction_id,
+            from: fromEvm,
+            to: toEvm,
+            amount: amountHbar,
+            confirmed: true,
             timestamp,
           });
         }
-      }
 
-      return results;
-    } catch (err: any) {
-      throw new HttpResponseError(
-        err.response?.status || 500,
-        "Failed to fetch incoming transactions",
-        err
-      );
+        // Pagination
+        url = res.data.links?.next
+          ? this.mirrorBase + res.data.links.next.replace(/^\/api\/v1/, "")
+          : "";
+
+        // Safety break after reasonable number of pages
+        if (results.length > 500) break;
+      }
+    } catch (error) {
+      return [];
     }
+
+    return results;
   }
 }

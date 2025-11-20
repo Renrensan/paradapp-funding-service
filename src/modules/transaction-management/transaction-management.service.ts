@@ -3,12 +3,13 @@ import {
   Prisma,
   PrismaClient,
   TokenType,
-  Transaction,
   TransactionType,
 } from "@prisma/client";
 import { DB_TOKENS } from "../../core/db/tokens";
 import { ITransactionManagementService } from "./transaction-management.type";
 import { XenditService } from "../xendit/xendit.service";
+import { validateRecipientAlternative } from "../../common/helper/validateBankAccount.helper";
+import { addWeeks, isAfter } from "date-fns";
 import {
   validateBtcAddress,
   validateHbarEvm,
@@ -45,6 +46,23 @@ export class TransactionService implements ITransactionManagementService {
       return { error: "Invalid token type", status: 400 };
     }
 
+    let finalWalletAddress = walletAddress;
+
+    if (tokenType === TokenType.BTC) {
+      if (!validateBtcAddress(finalWalletAddress)) {
+        return { error: "Invalid Bitcoin address", status: 400 };
+      }
+    }
+
+    if (tokenType === TokenType.HBAR) {
+      let w = finalWalletAddress;
+      const v1 = await validateHbarEvm(w);
+      if (!v1) w = await toEvmAddressIfNeeded(w);
+      const v2 = await validateHbarEvm(w);
+      if (!v2) return { error: "Invalid HBAR address", status: 400 };
+      finalWalletAddress = w;
+    }
+
     if (refAddress) {
       if (refAddress === walletAddress)
         return {
@@ -66,16 +84,16 @@ export class TransactionService implements ITransactionManagementService {
 
       if (tokenType === TokenType.HBAR) {
         let r = refAddress;
-        if (!(await validateHbarEvm(r))) r = await toEvmAddressIfNeeded(r);
-        if (!(await validateHbarEvm(r))) {
-          return { error: "Invalid HBAR referral address", status: 400 };
-        }
+        const v1 = await validateHbarEvm(r);
+        if (!v1) r = await toEvmAddressIfNeeded(r);
+        const v2 = await validateHbarEvm(r);
+        if (!v2) return { error: "Invalid HBAR referral address", status: 400 };
         input.refAddress = r;
       }
     }
 
     const existingTxs = await this.prisma.transaction.count({
-      where: { type, walletAddress, status: "WAITING" },
+      where: { type, walletAddress: finalWalletAddress, status: "WAITING" },
     });
 
     const limitTx = type === TransactionType.DEPOSIT ? 3 : 1;
@@ -113,42 +131,10 @@ export class TransactionService implements ITransactionManagementService {
         };
       }
 
-      if (tokenType === TokenType.BTC) {
-        if (!validateBtcAddress(walletAddress)) {
-          return {
-            error: "Invalid Bitcoin address",
-            status: 400,
-          };
-        }
-      }
-
-      if (tokenType === TokenType.HBAR) {
-        let w = walletAddress;
-        console.log(w, " ada gak sih");
-
-        try {
-          const v1 = await validateHbarEvm(w);
-
-          if (!v1) {
-            w = await toEvmAddressIfNeeded(w);
-          }
-
-          const v2 = await validateHbarEvm(w);
-
-          if (!v2) {
-            return { error: "Invalid HBAR address", status: 400 };
-          }
-
-          input.walletAddress = w;
-        } catch (e) {
-          return { error: "HBAR validation failed", status: 500 };
-        }
-      }
-
       const tx = await this.prisma.transaction.create({
         data: {
           type,
-          walletAddress: input.walletAddress,
+          walletAddress: finalWalletAddress,
           idrAmount,
           tokenType,
           paymentDetails,
@@ -158,8 +144,8 @@ export class TransactionService implements ITransactionManagementService {
 
       let x;
       let instruction = {};
-
       let updatedTx = tx;
+
       if (paymentDetails.method === "QRIS") {
         x = await this.xendit.createQRISPaymentRequest({
           amount: idrAmount,
@@ -252,8 +238,8 @@ export class TransactionService implements ITransactionManagementService {
       }
 
       if (
-        walletAddress === process.env.STORAGE_ADDRESS ||
-        walletAddress === process.env.DEV_BTC_ADDRESS
+        finalWalletAddress === process.env.STORAGE_ADDRESS ||
+        finalWalletAddress === process.env.DEV_BTC_ADDRESS
       ) {
         return {
           error: "Storage or Dev Wallet cannot create withdrawal transaction!",
@@ -272,22 +258,23 @@ export class TransactionService implements ITransactionManagementService {
           };
         }
 
-        // Validate account number
-        // if (typeof this.xendit.validateRecipientAlternative === "function") {
-        //   const validate = await this.xendit.validateRecipientAlternative(
-        //     paymentDetails.method,
-        //     paymentDetails.accountNumber
-        //   );
-        //   if (!validate?.success) {
-        //     return { error: "Withdrawal destination not found.", status: 400 };
-        //   }
-        // }
+        const result = await validateRecipientAlternative(
+          paymentDetails.bankCode,
+          paymentDetails.accountNumber
+        );
+
+        if (!result.success) {
+          return {
+            error: result.error || "Invalid bank account",
+            status: 400,
+          };
+        }
       }
 
       const tx = await this.prisma.transaction.create({
         data: {
           type,
-          walletAddress,
+          walletAddress: finalWalletAddress,
           tokenAmount,
           tokenType,
           paymentDetails: {
@@ -315,50 +302,178 @@ export class TransactionService implements ITransactionManagementService {
     const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
     const expired = await this.prisma.transaction.updateMany({
-      where: {
-        status: "WAITING",
-        createdAt: { lt: tenMinutesAgo },
-      },
-      data: {
-        status: "EXPIRED",
-      },
+      where: { status: "WAITING", createdAt: { lt: tenMinutesAgo } },
+      data: { status: "EXPIRED" },
     });
 
     const deleted = await this.prisma.transaction.deleteMany({
-      where: {
-        status: "EXPIRED",
-        createdAt: { lt: weekAgo },
-      },
+      where: { status: "EXPIRED", createdAt: { lt: weekAgo } },
     });
 
     return { expired: expired.count, deleted: deleted.count };
   }
 
-  async getTransactions(
-    args?: Prisma.TransactionFindManyArgs
-  ): Promise<Transaction[]> {
+  async getTransactions(args?: Prisma.TransactionFindManyArgs) {
     return this.prisma.transaction.findMany(args);
   }
 
   async getSingleTransactionByID(
     id: string,
     args?: Prisma.TransactionFindFirstArgs
-  ): Promise<Transaction | null> {
+  ) {
     return this.prisma.transaction.findFirst({
       where: { id, ...(args?.where || {}) },
       ...args,
     });
   }
 
-  async updateTransaction(
-    id: string,
-    data: Prisma.TransactionUpdateInput,
-    args?: Omit<Prisma.TransactionUpdateArgs, "where" | "data">
-  ): Promise<Transaction> {
-    return this.prisma.transaction.update({
-      where: { id },
-      data,
-      ...args,
+  async updateTransaction(id: string, data: Prisma.TransactionUpdateInput) {
+    return this.prisma.transaction.update({ where: { id }, data });
+  }
+
+  async getMetrics() {
+    const totalCompletedTransactions = await this.prisma.transaction.count({
+      where: { status: "PAID" },
     });
+
+    const uniqueUsers = await this.prisma.transaction.findMany({
+      where: { status: "PAID" },
+      distinct: ["walletAddress"],
+      select: { walletAddress: true },
+    });
+
+    const btcTxs = await this.prisma.transaction.findMany({
+      where: { status: "PAID", tokenType: "BTC", tokenAmount: { not: null } },
+      select: { tokenAmount: true },
+    });
+
+    const totalBTCVolume = btcTxs.reduce(
+      (sum, tx) => sum + (tx.tokenAmount ?? 0),
+      0
+    );
+
+    return {
+      totalCompletedTransactions,
+      uniqueUsers: uniqueUsers.length,
+      totalBTCVolume,
+    };
+  }
+
+  async getTransactionPublic(id: string) {
+    const tx = await this.prisma.transaction.findUnique({ where: { id } });
+    if (!tx) return null;
+
+    const { cexTxId, refAddress, refAmount, xenditTxId, ...publicTx } = tx;
+    return publicTx;
+  }
+
+  async getTransactionsByAddress(walletAddress: string) {
+    return this.prisma.transaction.findMany({
+      where: { walletAddress },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        type: true,
+        status: true,
+        tokenAmount: true,
+        idrAmount: true,
+        walletAddress: true,
+        txHash: true,
+        createdAt: true,
+        updatedAt: true,
+        tokenType: true,
+      },
+    });
+  }
+
+  async getReferralHistory(walletAddress: string) {
+    return this.prisma.transaction.findMany({
+      where: {
+        refAddress: walletAddress,
+        refAmount: { not: null },
+        status: { in: ["PENDING", "PAID"] },
+      },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        tokenAmount: true,
+        refAmount: true,
+        txHash: true,
+        createdAt: true,
+        walletAddress: true,
+        idrAmount: true,
+        status: true,
+        tokenType: true,
+      },
+    });
+  }
+
+  async getSubscriptionStatus(walletAddress: string) {
+    if (walletAddress === process.env.BTC_STORAGE_ADDRESS) {
+      const fakeExpiry = new Date();
+      fakeExpiry.setFullYear(fakeExpiry.getFullYear() + 100);
+      return {
+        active: true,
+        expiry: fakeExpiry.toISOString(),
+        expiresIn: "100 years",
+      };
+    }
+
+    const deposits = await this.prisma.transaction.findMany({
+      where: { walletAddress, type: "DEPOSIT", status: "PAID" },
+      orderBy: { updatedAt: "asc" },
+    });
+
+    if (deposits.length === 0)
+      return { active: false, expiry: null, expiresIn: null };
+
+    let lastExpiry: Date | null = null;
+
+    for (const tx of deposits) {
+      const txDate = new Date(tx.updatedAt);
+      const weeks = Math.floor((tx.idrAmount ?? 0) / 199_000);
+      if (weeks < 1) continue;
+
+      if (!lastExpiry || isAfter(txDate, lastExpiry)) {
+        lastExpiry = addWeeks(txDate, weeks);
+      } else {
+        lastExpiry = addWeeks(lastExpiry, weeks);
+      }
+    }
+
+    const now = new Date();
+    const active = lastExpiry ? isAfter(lastExpiry, now) : false;
+    const expiresIn = active
+      ? `${Math.floor(
+          (lastExpiry!.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
+        )} days`
+      : null;
+
+    return { active, expiry: lastExpiry?.toISOString() ?? null, expiresIn };
+  }
+
+  async validateRecipient(method: string, accountNumber: string) {
+    const result = await validateRecipientAlternative(method, accountNumber);
+    if (!result.success || !result.data?.name) {
+      return { valid: false, error: result.error || "Invalid recipient" };
+    }
+
+    const obfuscated = this.obfuscateNameFull(result.data.name);
+    return { valid: true, account_holder: obfuscated };
+  }
+
+  private obfuscateNameFull(name: string): string {
+    return name
+      .split(" ")
+      .map((word) => {
+        const len = word.length;
+        if (len <= 2) return word;
+        if (len <= 4) return word[0] + "*".repeat(len - 1);
+        const start = word[0];
+        const end = word.slice(-2);
+        const middle = "*".repeat(len - 3);
+        return `${start}${middle}${end}`;
+      })
+      .join(" ");
   }
 }
